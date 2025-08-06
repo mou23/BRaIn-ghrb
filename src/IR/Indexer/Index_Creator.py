@@ -336,6 +336,6 @@ if __name__ == '__main__':
     index_creator.create_index(delete_if_exists=True)
     
     # Index all projects from the dataset
-    base_repo_path = "/Users/armin/Desktop/source_codes"  # Base path containing all project repositories with projects in each direcotry same as the name in ye et al dataset
-    base_dataset_path = "/Users/armin/Desktop/UCI/bug-localization-project/Codes/Adjusted-BRaIn/Adjusted-BraIn/Data/ye et al"
+    base_repo_path = "../sample"  # Base path containing all project repositories with projects in each direcotry same as the name in ye et al dataset
+    base_dataset_path = "../sample"
     index_creator.index_all_projects_from_dataset(base_repo_path, base_dataset_path)
