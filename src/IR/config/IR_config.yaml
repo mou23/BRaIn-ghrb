@@ -1,0 +1,11 @@
+elasticsearch:
+  host: localhost # default: please don't change this if not necessary
+  port: 9200 # default: please don't change this if not necessary
+  index_name: ghrb
+
+
+Fields:
+  project: keyword
+  source_code: text
+  buggy_commit: keyword
+  file_url: keyword
