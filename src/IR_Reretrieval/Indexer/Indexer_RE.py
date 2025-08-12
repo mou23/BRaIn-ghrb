@@ -27,9 +27,9 @@ class Indexer_RE:
         # Create an instance of Elasticsearch client
         self.es_client = Elasticsearch('http://' + elastic_search_host + ':' + str(elastic_search_port),
                                   # http_auth=("username", "password"),
-                                  verify_certs=False)
+                                  verify_certs=False,request_timeout=90,retry_on_timeout=True,max_retries=2)
 
-    def index(self, project, sub_project, version, source_code, file_url, embedding_codet5s, embedding_codebert, embedding_codet5base):
+    def index_with_embeddings(self, project, sub_project, version, source_code, file_url, embedding_codet5s, embedding_codebert, embedding_codet5base):
         document = {
             "project": project,
             "sub_project": sub_project,
@@ -45,11 +45,10 @@ class Indexer_RE:
 
         return result
 
-    def index(self, project, sub_project, version, source_code, file_url, bug_id):
+    def index(self, project, source_code, file_url, buggy_commit, bug_id):
         document = {
             "project": project,
-            "sub_project": sub_project,
-            "version": version,
+            "buggy_commit": buggy_commit,
             "source_code": source_code,
             "file_url": file_url,
             "bug_id": bug_id
@@ -65,11 +64,10 @@ class Indexer_RE:
             yield document
 
     # function for bulk indexing. it is same as before. saves the doc in array and when it reaches the limit, it indexes them in bulk
-    def bulk_index(self, project, sub_project, version, source_code, file_url, bug_id, bulk_size=256):
+    def bulk_index(self, project, source_code, file_url, buggy_commit, bug_id, bulk_size=256):
         document = {
             "project": project,
-            "sub_project": sub_project,
-            "version": version,
+            "buggy_commit": buggy_commit,
             "source_code": source_code,
             "file_url": file_url,
             "bug_id": bug_id

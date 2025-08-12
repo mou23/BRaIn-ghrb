@@ -2,7 +2,7 @@ from elasticsearch import Elasticsearch
 
 from src.IR_Reretrieval.config.ConfigLoader import ConfigLoader
 from src.IR_Reretrieval.config.Elasic_Config_Loader import Elasic_Config_Loader
-
+from src.IR_Reretrieval.Indexer.Indexer_RE import Indexer_RE
 '''
     CAUTION:
     This is used to create an index in elastic search. This needs to be run only once. running it again will delete the index and create a new one.
@@ -34,7 +34,7 @@ class Index_Creator:
         # Create an instance of Elasticsearch client
         self.es_client = Elasticsearch(
             'http://' + self.elastic_search_host + ':' + str(self.elastic_search_port),
-            verify_certs=False
+            verify_certs=False,request_timeout=90,retry_on_timeout=True,max_retries=2
         )
 
     def create_index(self, delete_if_exists=False):
@@ -89,6 +89,26 @@ class Index_Creator:
         else:
             print(f"Failed to create the index '{self.index_name}'.")
 
+    def reindex_project(self, search_results):
+        indexer = Indexer_RE()
+        for result in search_results:
+            project_name = result.get("project")
+            source_code = result.get("source_code")
+            file_url = result.get("file_url")
+            buggy_commit = result.get("buggy_commit")
+            bug_id = result.get("bug_id")
+
+            if not all([project_name, source_code, file_url, buggy_commit, bug_id]):
+                print(f"Skipping indexing due to missing fields in result: {result}")
+                continue
+            indexer.bulk_index(
+                                project=project_name,
+                                source_code=source_code,
+                                file_url=file_url,
+                                buggy_commit=buggy_commit,
+                                bug_id=bug_id
+                            )
+        indexer.refresh()
 
 if __name__ == '__main__':
     index_creator = Index_Creator()

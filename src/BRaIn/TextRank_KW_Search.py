@@ -3,7 +3,7 @@ from collections import defaultdict
 
 import networkx as nx
 
-from Utils.NLP.TextPreprocessor import TextPreprocessor
+from src.Utils.NLP.TextPreprocessor import TextPreprocessor
 
 class TextRank:
 
@@ -74,6 +74,13 @@ class TextRank:
                                                                 weight=self.graph[token][camel_token][
                                                                            'weight'] + 1 if self.graph.has_edge(token,
                                                                                                                 camel_token) else 1)
+
+        # total_weight = sum(bias_dict.values())
+        # print("Total personalization weight:", total_weight)
+
+        if sum(bias_dict.values()) == 0:
+            for node in self.graph.nodes():
+                bias_dict[node] = 1.0
 
         # Compute PageRank scores
         scores = nx.pagerank(self.graph, alpha=0.85, weight='weight', max_iter=1000, personalization=bias_dict)

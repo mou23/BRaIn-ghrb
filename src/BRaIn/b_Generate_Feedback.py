@@ -1,10 +1,12 @@
 import json
-
+import html
+import os
+import sys
 from transformers import AutoTokenizer
 
 from vllm import LLM, SamplingParams
 from tqdm import tqdm
-from Utils import JSON_File_IO
+from src.Utils import JSON_File_IO
 from transformers import AutoTokenizer
 
 
@@ -17,7 +19,7 @@ def load_json_to_dict(file_path):
 
 
 def llm_scoring(es_results, bug_title, bug_description, llm):
-    tokenizer = AutoTokenizer.from_pretrained("MODEL_PATH")
+    tokenizer = AutoTokenizer.from_pretrained("marinarosell/Mistral-7B-Instruct-v0.3-GPTQ-8bit-gs128")
 
     user_role = {"role": "user", "content": ""}
     assistant_role = {"role": "assistant", "content": ""}
@@ -87,37 +89,64 @@ Analyze the following bug report and code segment for relevance:"""
 
     return es_results
 
+def get_projects_from_base_path(base_path):
+    projects = {}
+    for filename in os.listdir(base_path):
+        if filename.endswith('.xml'):
+            project_name = os.path.splitext(filename)[0]
+            projects[project_name] = filename
+    return projects
 
-import html
 
 if __name__ == '__main__':
-    llm = LLM(model="MODEL_PATH", quantization="GPTQ", dtype="half",
+    llm = LLM(model="marinarosell/Mistral-7B-Instruct-v0.3-GPTQ-8bit-gs128", quantization="gptq_marlin", dtype="half",
               max_model_len=8192)
+    input_base_path = sys.argv[1]
+    projects = get_projects_from_base_path(input_base_path)
 
-    sample_path = "SAVED_RESULTS_PATH"
+    for project_name in tqdm(projects.keys(), desc="Processing All Projects"):
+        print(f"\n--- Processing Project: {project_name} ---")
 
-    # load the json to dictionary
-    df = load_dataframe(sample_path)
+        project_json_dir = os.path.join("cached_methods", project_name)
+        if not os.path.exists(project_json_dir):
+            print(f"Warning: Directory not found for project: {project_json_dir}")
+            continue
 
-    # convert this to json string
-    json_string = JSON_File_IO.convert_Dataframe_to_JSON_string(df)
+        for json_file in os.listdir(project_json_dir):
+            if not json_file.endswith(".json"):
+                continue
 
-    # iterate over the json string
-    json_bugs = json.loads(json_string)
+            sample_path = os.path.join(project_json_dir, json_file)
+            print(f"Processing file: {sample_path}")
 
-    # iterate over the json array
-    for bug in tqdm(json_bugs, desc="Processing JSON Bugs"):
-        # for bug in json_bugs:
-        bug_title = html.unescape(bug['bug_title'])
-        bug_description = html.unescape(bug['bug_description'])
-        project = bug['project']
-        sub_project = bug['sub_project']
-        version = bug['version']
-        es_results = bug['es_results']
+            # sample_path = "cached_methods/dubbo/Cache_Res50_C1.json"
 
-        score_llm_results = llm_scoring(es_results, bug_title, bug_description, llm=llm)
+            # load the json to dictionary
+            df = load_dataframe(sample_path)
 
-        bug['es_results'] = score_llm_results
+            # convert this to json string
+            json_string = JSON_File_IO.convert_Dataframe_to_JSON_string(df)
 
-    json_save_path = "../../Output/Intelligent_Feedback/"
-    JSON_File_IO.save_Dict_to_JSON(json_bugs, json_save_path, "Mistral_ZERO.json")
+            # iterate over the json string
+            json_bugs = json.loads(json_string)
+
+            # iterate over the json array
+            for bug in tqdm(json_bugs, desc="Processing JSON Bugs"):
+                # for bug in json_bugs:
+                bug_title = html.unescape(bug['bug_title'])
+                bug_description = html.unescape(bug['bug_description'])
+                project = bug['project']
+                buggy_commit = bug['buggy_commit']
+                # sub_project = bug['sub_project']
+                # version = bug['version']
+                es_results = bug['es_results']
+
+                score_llm_results = llm_scoring(es_results, bug_title, bug_description, llm=llm)
+
+                bug['es_results'] = score_llm_results
+
+            output_dir = os.path.join("Output", "Intelligent_Feedback", project_name)
+            os.makedirs(output_dir, exist_ok=True)
+
+            output_filename = f"Scored_{json_file}"
+            JSON_File_IO.save_Dict_to_JSON(json_bugs, output_dir, output_filename)

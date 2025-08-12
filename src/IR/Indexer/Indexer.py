@@ -1,6 +1,7 @@
 from elasticsearch import Elasticsearch, helpers
 import subprocess
 import os
+import shutil
 
 from src.IR.config.Elasic_Config_Loader import Elasic_Config_Loader
 
@@ -29,7 +30,37 @@ class Indexer:
         # Create an instance of Elasticsearch client
         self.es_client = Elasticsearch('http://' + elastic_search_host + ':' + str(elastic_search_port),
                                   # http_auth=("username", "password"),
-                                  verify_certs=False)
+                                  verify_certs=False,request_timeout=90,retry_on_timeout=True,max_retries=2)
+
+    # def checkout_commit_before_fix(self, repo_path, commit_before_fix):
+    #     """
+    #     Checkout the commit before the fix commit
+    #     :param repo_path: Path to the git repository
+    #     :param fix_commit: The commit hash where the bug was fixed
+    #     :return: True if successful, False otherwise
+    #     """
+    #     try:
+    #         # Change to the repository directory
+    #         original_dir = os.getcwd()
+    #         os.chdir(repo_path)
+
+    #         # Checkout the commit before the fix
+    #         subprocess.run(['git', 'checkout', commit_before_fix], check=True)
+            
+    #         print(f"Successfully checked out commit {commit_before_fix}")
+            
+    #         # Return to original directory
+    #         os.chdir(original_dir)
+    #         return True
+            
+    #     except subprocess.CalledProcessError as e:
+    #         print(f"Error checking out commit: {e}")
+    #         os.chdir(original_dir)
+    #         return False
+    #     except Exception as e:
+    #         print(f"Unexpected error: {e}")
+    #         os.chdir(original_dir)
+    #         return False
 
     def checkout_commit_before_fix(self, repo_path, commit_before_fix):
         """
@@ -42,11 +73,9 @@ class Indexer:
             # Change to the repository directory
             original_dir = os.getcwd()
             os.chdir(repo_path)
-
-            # Checkout the commit before the fix
-            subprocess.run(['git', 'checkout', commit_before_fix], check=True)
             
-            print(f"Successfully checked out commit {commit_before_fix}")
+            subprocess.run(['git', 'worktree', 'add', commit_before_fix, commit_before_fix], check=True)
+            print(f"Successfully created worktree {commit_before_fix}")
             
             # Return to original directory
             os.chdir(original_dir)
@@ -60,6 +89,52 @@ class Indexer:
             print(f"Unexpected error: {e}")
             os.chdir(original_dir)
             return False
+
+    def checkout_worktree_at_commit(self, repo_root: str, commit_hash: str) -> str | None:
+        """
+        Create a detached worktree at the given commit and return its path.
+        The worktree is created under <repo_root>/_worktrees/<commit_hash>.
+        """
+        original_dir = os.getcwd()
+        worktrees_root = os.path.join(repo_root, "_worktrees")
+        worktree_dir = os.path.join(worktrees_root, commit_hash)
+
+        try:
+            os.makedirs(worktrees_root, exist_ok=True)
+            os.chdir(repo_root)
+
+            # If a stale worktree exists, remove it first
+            if os.path.exists(worktree_dir):
+                try:
+                    subprocess.run(["git", "worktree", "remove", "--force", worktree_dir], check=True)
+                except subprocess.CalledProcessError:
+                    pass
+                shutil.rmtree(worktree_dir, ignore_errors=True)
+
+            # Create a detached worktree at the specific commit
+            subprocess.run(["git", "worktree", "add", "--detach", worktree_dir, commit_hash], check=True)
+            print(f"Created worktree at {worktree_dir} for {commit_hash}")
+            return worktree_dir
+
+        except subprocess.CalledProcessError as e:
+            print(f"git worktree error: {e}")
+            return None
+        except Exception as e:
+            print(f"Unexpected error creating worktree: {e}")
+            return None
+        finally:
+            os.chdir(original_dir)
+
+    def remove_worktree(self, repo_root: str, worktree_dir: str) -> None:
+        """Remove the worktree and prune metadata."""
+        original_dir = os.getcwd()
+        try:
+            os.chdir(repo_root)
+            subprocess.run(["git", "worktree", "remove", "--force", worktree_dir], check=False)
+            subprocess.run(["git", "worktree", "prune"], check=False)
+            shutil.rmtree(worktree_dir, ignore_errors=True)
+        finally:
+            os.chdir(original_dir)
 
     def index(self, project, source_code, file_url, buggy_commit):
         document = {

@@ -1,7 +1,9 @@
 from elasticsearch import Elasticsearch
 import os
+import sys
 import xml.etree.ElementTree as ET
 from tqdm import tqdm
+import shutil
 
 from src.IR.config.Elasic_Config_Loader import Elasic_Config_Loader
 from src.IR.Indexer.Indexer import Indexer
@@ -120,26 +122,7 @@ class Index_Creator:
         print(f"Found {len(commits_list)} unique commits in dataset")
         return commits_list
 
-    def index_all_projects_from_dataset(self, base_repo_path, base_dataset_path):
-        """
-        Index all projects from the ye et al dataset
-        :param base_repo_path: Base path containing all project repositories
-        :param base_dataset_path: Base path containing all XML dataset files
-        """
-        print(f"Starting to index all projects from ye et al dataset")
-        print(f"Base repository path: {base_repo_path}")
-        print(f"Base dataset path: {base_dataset_path}")
-        
-        # Define the projects and their corresponding dataset files
-        projects = {
-            'dubbo': 'dubbo.xml',
-            # 'eclipse': 'eclipse.xml', 
-            # 'birt': 'birt.xml',
-            # 'swt': 'swt.xml',
-            # 'jdt': 'jdt.xml',
-            # 'tomcat': 'tomcat.xml'
-        }
-        
+    def index_all_projects_from_dataset(self, projects, base_path):
         total_successful_projects = 0
         total_failed_projects = 0
         
@@ -149,8 +132,8 @@ class Index_Creator:
             print(f"{'='*50}")
             
             # Construct paths
-            repo_path = os.path.join(base_repo_path, project_name)
-            dataset_path = os.path.join(base_dataset_path, dataset_file)
+            repo_path = os.path.join(base_path, project_name)
+            dataset_path = os.path.join(base_path, dataset_file)
             
             # Check if repository exists
             if not os.path.exists(repo_path):
@@ -214,18 +197,21 @@ class Index_Creator:
                     successful_indexes += 1
                 else:
                     failed_indexes += 1
+                commit_dir = os.path.join(source_code_path, commit)
+                if os.path.exists(commit_dir):
+                    shutil.rmtree(commit_dir, ignore_errors=True)
             except Exception as e:
                 print(f"Error indexing commit {commit}: {e}")
                 failed_indexes += 1
                 continue
-        
+            
         print(f"Indexing completed for {project_name}!")
         print(f"Successfully indexed: {successful_indexes} commits")
         print(f"Failed to index: {failed_indexes} commits")
         
         return successful_indexes > 0
 
-    def index_source_code_for_commit(self, source_code_path, project_name, buggy_commit):
+    def index_source_code_for_commit_old(self, source_code_path, project_name, buggy_commit):
         """
         Index source code for a specific commit
         :param source_code_path: Path to the directory containing Java source files
@@ -234,14 +220,14 @@ class Index_Creator:
         """
         print(f"Starting to index source code from: {source_code_path}")
         print(f"Project name: {project_name}")
-        print(f"Fixed commit: {buggy_commit}")
+        print(f"Buggy commit: {buggy_commit}")
         
         # Create an instance of the Indexer
         indexer = Indexer()
         
         # First, checkout the commit before the fix
         if not indexer.checkout_commit_before_fix(source_code_path, buggy_commit):
-            print(f"Failed to checkout commit before {buggy_commit}, skipping indexing...")
+            print(f"Failed to checkout commit {buggy_commit}, skipping indexing...")
             return False
         
         # Counter for indexed files
@@ -280,6 +266,51 @@ class Index_Creator:
         
         print(f"Successfully indexed {indexed_count} Java files for project: {project_name}, buggy_commit: {buggy_commit}")
         return True
+
+    def index_source_code_for_commit(self, repo_root: str, project_name: str, buggy_commit: str) -> bool:
+        """
+        Index ONLY the files from the buggy commit by walking its dedicated worktree.
+        """
+        print(f"Project: {project_name}")
+        print(f"Buggy commit: {buggy_commit}")
+
+        indexer = Indexer()
+
+        worktree_dir = indexer.checkout_worktree_at_commit(repo_root, buggy_commit)
+        if not worktree_dir:
+            print(f"Failed to prepare worktree for {buggy_commit}")
+            return False
+
+        indexed_count = 0
+
+        try:
+            for root, _, files in tqdm(os.walk(worktree_dir), desc="Indexing buggy commit"):
+                for file in files:
+                    if not file.endswith(".java"):
+                        continue
+                    file_path = os.path.join(root, file)
+                    try:
+                        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                            source_code = f.read()
+
+                        file_url = os.path.relpath(file_path, worktree_dir)
+
+                        indexer.bulk_index(
+                            project=project_name,
+                            source_code=source_code,
+                            file_url=file_url,
+                            buggy_commit=buggy_commit
+                        )
+                        indexed_count += 1
+                    except Exception as e:
+                        print(f"Error reading {file_path}: {e}")
+
+            indexer.refresh()
+            print(f"Indexed {indexed_count} Java files for {project_name} at commit {buggy_commit}")
+            return True
+
+        finally:
+            indexer.remove_worktree(repo_root, worktree_dir)
 
     def index_source_code(self, source_code_path, project_name):
         """
@@ -331,11 +362,20 @@ class Index_Creator:
         return True
 
 
+
+def get_projects_from_base_path(base_path):
+    projects = {}
+    for filename in os.listdir(base_path):
+        if filename.endswith('.xml'):
+            project_name = os.path.splitext(filename)[0]
+            projects[project_name] = filename
+    return projects
+
+
 if __name__ == '__main__':
     index_creator = Index_Creator()
     index_creator.create_index(delete_if_exists=True)
-    
-    # Index all projects from the dataset
-    base_repo_path = "../sample"  # Base path containing all project repositories with projects in each direcotry same as the name in ye et al dataset
-    base_dataset_path = "../sample"
-    index_creator.index_all_projects_from_dataset(base_repo_path, base_dataset_path)
+
+    base_path = sys.argv[1]
+    projects = get_projects_from_base_path(base_path)
+    index_creator.index_all_projects_from_dataset(projects, base_path)

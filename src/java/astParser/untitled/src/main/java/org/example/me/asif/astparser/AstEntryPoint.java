@@ -1,5 +1,6 @@
 package org.example.me.asif.astparser;
 
+import java.net.InetAddress;
 import py4j.GatewayServer;
 
 public class AstEntryPoint {
@@ -32,9 +33,21 @@ public class AstEntryPoint {
 
     public static void main(String[] args) {
         AstEntryPoint astEntryPoint = new AstEntryPoint();
-        GatewayServer gatewayServer = new GatewayServer(astEntryPoint);
+        String host = "0.0.0.0";
 
-        gatewayServer.start();
+        // GatewayServer gatewayServer = new GatewayServer(astEntryPoint, GatewayServer.DEFAULT_PORT, InetAddress.getByName(host));
+        // gatewayServer.start();
+
+        GatewayServer server = new GatewayServer(
+                astEntryPoint,
+                GatewayServer.DEFAULT_PORT,
+                0,  // pythonPort (callback), 0 = don’t open one now
+                InetAddress.getByName("0.0.0.0"),  // Java listen address
+                InetAddress.getByName("0.0.0.0"),  // callback (Python) address if used
+                0, 0, null
+        );
+        server.start();
+
         System.out.println("Gateway Server Started");
     }
 }

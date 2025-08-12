@@ -1,5 +1,5 @@
 elasticsearch:
-  host: localhost # default: please don't change this if not necessary
+  host: hpc3-20-11 # default: please don't change this if not necessary
   port: 9200 # default: please don't change this if not necessary
   index_name: ghrb
 

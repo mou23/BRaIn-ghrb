@@ -1,6 +1,7 @@
 import json
 import xml.etree.ElementTree as ET
 import os
+import sys
 
 from tqdm import tqdm
 
@@ -8,8 +9,9 @@ from src.IR import Searcher
 from src.Utils import JavaSourceParser
 from src.Utils.IO import JSON_File_IO
 from src.Utils.Parser.JavaSourceParser import clear_formatting
+from src.IR_Reretrieval.Indexer.Index_Creator import Index_Creator
 
-from py4j.java_gateway import JavaGateway
+from py4j.java_gateway import JavaGateway, GatewayParameters
 
 
 def parse_xml_dataset(file_path):
@@ -46,27 +48,27 @@ def parse_xml_dataset(file_path):
                 bug['buggy_commit'] = value
             elif name == 'files':
                 # Parse files field - it contains file paths separated by whitespace
-                files = [f.strip() for f in value.split() if f.strip()]
-                bug['fixed_files'] = files
-            elif name == 'result':
-                # Parse result field - contains file:line_number format
-                results = []
-                for line in value.split('\n'):
-                    line = line.strip()
-                    if ':' in line:
-                        parts = line.split(':', 1)
-                        if len(parts) == 2:
-                            file_path = parts[0].strip()
-                            line_number = parts[1].strip()
-                            results.append({
-                                'file': file_path,
-                                'line': line_number
-                            })
-                bug['result'] = results
+                files = value.split('.java')
+                bug['fixed_files'] = [(file + '.java').strip() for file in files[:-1]]
+            # elif name == 'result':
+            #     # Parse result field - contains file:line_number format
+            #     results = []
+            #     for line in value.split('\n'):
+            #         line = line.strip()
+            #         if ':' in line:
+            #             parts = line.split(':', 1)
+            #             if len(parts) == 2:
+            #                 file_path = parts[0].strip()
+            #                 line_number = parts[1].strip()
+            #                 results.append({
+            #                     'file': file_path,
+            #                     'line': line_number
+            #                 })
+            #     bug['result'] = results
 
-        # Only add bugs that have the required fields
-        if 'bug_id' in bug and 'bug_title' in bug and 'bug_description' in bug and 'buggy_commit' in bug:
-            bugs.append(bug)
+
+        # if 'bug_id' in bug and 'bug_title' in bug and 'bug_description' in bug and 'buggy_commit' in bug:
+        bugs.append(bug)
 
     print(f"Parsed {len(bugs)} bugs from XML dataset")
     return bugs
@@ -79,7 +81,7 @@ def perform_search(project, buggy_commit, bug_title, bug_description, top_K_resu
         buggy_commit=buggy_commit,
         query=bug_title + '. ' + bug_description,
         top_K_results=top_K_results,
-        field_to_return=["file_url", "source_code"]
+        field_to_return=["project","buggy_commit","file_url", "source_code"]
     )
 
     return search_results
@@ -146,28 +148,14 @@ def search_result_ops(search_results):
     return processed_results
 
 
-def process_all_projects(base_dataset_path, output_base_path):
-    """
-    Process all projects from the ye et al dataset
-    :param base_dataset_path: Base path containing all XML dataset files
-    :param output_base_path: Base path for output files
-    """
-    print(f"Starting to process all projects from ye et al dataset")
-    print(f"Base dataset path: {base_dataset_path}")
-    print(f"Output base path: {output_base_path}")
-
-    # Define the projects and their corresponding dataset files
-    projects = {
-        'aspectj': 'aspectj.xml',
-        'eclipse': 'eclipse.xml',
-        'birt': 'birt.xml',
-        'swt': 'swt.xml',
-        'jdt': 'jdt.xml',
-        'tomcat': 'tomcat.xml'
-    }
-
+def process_all_projects(projects, base_dataset_path, output_base_path):
+    print(f"Starting to process all projects from ghrb dataset")
+   
     total_successful_projects = 0
     total_failed_projects = 0
+
+    index_creator = Index_Creator()
+    index_creator.create_index(delete_if_exists=True)
 
     for project_name, dataset_file in projects.items():
         print(f"\n{'=' * 50}")
@@ -189,7 +177,7 @@ def process_all_projects(base_dataset_path, output_base_path):
             continue
 
         try:
-            success = process_single_project(project_name, dataset_path, project_output_path)
+            success = process_single_project(project_name, dataset_path, index_creator, project_output_path)
             if success:
                 total_successful_projects += 1
             else:
@@ -207,7 +195,7 @@ def process_all_projects(base_dataset_path, output_base_path):
     print(f"Total projects processed: {total_successful_projects + total_failed_projects}")
 
 
-def process_single_project(project_name, dataset_path, output_path):
+def process_single_project(project_name, dataset_path, index_creator, output_path):
     """
     Process a single project from the dataset
     :param project_name: Name of the project
@@ -232,11 +220,15 @@ def process_single_project(project_name, dataset_path, output_path):
     for i in range(0, len(bugs), chunk_size):
         bugs_chunked.append(bugs[i:i + chunk_size])
 
+
+    search_results_for_all_bugs = []
+
     chunk_id = 1
     # iterate over the bugs_chunked
     for bug_chunk in tqdm(bugs_chunked, desc=f"Processing Bug Chunks for {project_name}"):
         # iterate over the bugs in each chunk
         for bug in tqdm(bug_chunk, desc=f"Processing Bugs for {project_name}"):
+            bug_id = bug['bug_id']
             bug_title = bug['bug_title']
             bug_description = bug['bug_description']
             project = bug['project']
@@ -244,7 +236,9 @@ def process_single_project(project_name, dataset_path, output_path):
 
             # now search for the query in a method
             search_results = perform_search(project, buggy_commit, bug_title, bug_description, top_K_results=50)
-
+            for item in search_results:
+                item["bug_id"] = bug_id
+            search_results_for_all_bugs.extend(search_results)
             # now, perform ops in the search results
             processed_results = search_result_ops(search_results)
 
@@ -258,16 +252,29 @@ def process_single_project(project_name, dataset_path, output_path):
 
         # empty the bug_chunk from memory after saving to save memory
         bug_chunk = []
-
+    index_creator.reindex_project(search_results_for_all_bugs)
     print(f"Successfully processed {len(bugs)} bugs for project {project_name}")
     return True
 
 
-gateway = JavaGateway()  # connect to the JVM
+gateway = JavaGateway(
+    gateway_parameters=GatewayParameters(
+        address="127.0.0.1", 
+        port=25333 
+    )
+)
 java_py4j_ast_parser = gateway.entry_point.getJavaMethodParser()  # get the HelloWorld instance
 
+def get_projects_from_base_path(base_path):
+    projects = {}
+    for filename in os.listdir(base_path):
+        if filename.endswith('.xml'):
+            project_name = os.path.splitext(filename)[0]
+            projects[project_name] = filename
+    return projects
+
 if __name__ == '__main__':
-    # Process all projects from the dataset
-    base_dataset_path = "/Users/armin/Desktop/UCI/bug-localization-project/Codes/Adjusted-BRaIn/Adjusted-BraIn/Data/ye et al"
+    input_base_path = sys.argv[1]
+    projects = get_projects_from_base_path(input_base_path)
     output_base_path = "cached_methods"
-    process_all_projects(base_dataset_path, output_base_path)
+    process_all_projects(projects, input_base_path, output_base_path)

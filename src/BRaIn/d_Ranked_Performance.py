@@ -1,23 +1,56 @@
+import os
 from tqdm import tqdm
 
-from Utils import Performance_Evaluator
-from Utils.IO import JSON_File_IO
+from src.Utils import Performance_Evaluator
+from src.Utils.IO import JSON_File_IO
 
 def checkGTExists(fixed_files, results):
     for file in fixed_files:
         if file in results:
+            print(f"Found GT: {file}")
             return True
     return False
 
-count_of_found_gt = 0
+
+def get_sorted_cache_files(base_dir="Output/Cache"):
+    """
+    Returns { project_name: [sorted_cache_json_paths...] }
+    Looks for 'Mistral_ZERO_sorted_cache.json' first; if missing, falls back to any '*_sorted_cache.json'.
+    """
+    project_files = {}
+    if not os.path.isdir(base_dir):
+        print(f"Base dir not found: {base_dir}")
+        return project_files
+
+    for project in os.listdir(base_dir):
+        proj_dir = os.path.join(base_dir, project)
+        if not os.path.isdir(proj_dir):
+            continue
+
+        preferred = os.path.join(proj_dir, "Mistral_ZERO_sorted_cache.json")
+        files = []
+        if os.path.isfile(preferred):
+            files = [preferred]
+        else:
+            files = [
+                os.path.join(proj_dir, f)
+                for f in os.listdir(proj_dir)
+                if f.endswith("_sorted_cache.json")
+            ]
+        if files:
+            project_files[project] = files
+    return project_files
+    
+
+
 if __name__ == '__main__':
-
-    ##### train_test #####
-    json_path = "../../Output/Cache/Mistral_ZERO_sorted_cache.json"
-
-
-    # load the json to dictionary
-    json_bugs = JSON_File_IO.load_JSON_to_Dict(json_path)
+    count_of_found_gt = 0
+    projects_to_files = get_sorted_cache_files(base_dir="Output/Cache")
+    json_bugs = []
+    for project, file_list in projects_to_files.items():
+        for json_path in file_list:
+            project_wise_json_bugs = JSON_File_IO.load_JSON_to_Dict(json_path)
+            json_bugs.extend(project_wise_json_bugs)
 
     all_ground_truths = []
     all_search_results = []
@@ -27,8 +60,7 @@ if __name__ == '__main__':
         bug_title = bug['bug_title']
         bug_description = bug['bug_description']
         project = bug['project']
-        sub_project = bug['sub_project']
-        version = bug['version']
+        buggy_commit = bug['buggy_commit']
         responses = None
         # responses = bug['response']
 
@@ -48,8 +80,6 @@ if __name__ == '__main__':
     gt_tracker_by_count = {}
     sr_tracker_by_count = {}
     for gt, sr in zip(all_ground_truths, all_search_results):
-        # extract the file name from full . separated in gt and check gt contains string Test or test. if it does remove it.
-
 
         if checkGTExists(gt, sr):
             count_of_found_gt += 1
@@ -88,4 +118,4 @@ if __name__ == '__main__':
     performance = performance_evaluator.evaluate_several(refined_gt, refined_sr, at_Ks=[1, 5, 10])
 
     print(f"Whole Performance: {performance} Refined Total Bug Reports: {len(refined_gt)}")
-    print(f"Found Gt for {count_of_found_gt} number of files")
+    print(f"Found Gt for {count_of_found_gt} bugs")

@@ -29,7 +29,7 @@ class TextPreprocessor:
 
         if self.remove_SE_stop_words:
             # load java stop words from file to a list
-            path_stop = 'D:\Research\Coding\QueryReformulation_MAIN\QueryReformulation_LLM\src\\Utils\StopWords\java_stops.txt'
+            path_stop = 'src/Utils/StopWords/java_stops.txt'
             with open(path_stop, 'r') as file:
                 self.java_stop_words = file.read().split('\n')
 

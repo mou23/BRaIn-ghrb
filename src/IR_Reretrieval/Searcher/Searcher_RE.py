@@ -102,7 +102,7 @@ class Searcher_RE:
         return results_file_urls
 
 
-    def search_Extended(self, bug_id, project, sub_project, version, query, top_K_results=10, field_to_return=["file_url"]):
+    def search_Extended(self, bug_id, project, buggy_commit, query, top_K_results=10, field_to_return=["file_url"]):
         search_query = {
                 "bool": {
                     "must": [
@@ -113,12 +113,7 @@ class Searcher_RE:
                         },
                         {
                             "match": {
-                                "sub_project": sub_project
-                            }
-                        },
-                        {
-                            "match": {
-                                "version": version
+                                "buggy_commit": buggy_commit
                             }
                         },
                         {
