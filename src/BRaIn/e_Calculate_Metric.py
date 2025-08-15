@@ -86,7 +86,7 @@ def calculate_mean_average_precision_at_k(bug_data):
         mean_average_precision = total_average_precision/total_bug
         print("MAP@", top, mean_average_precision, total_bug)
 
-def get_sorted_cache_files(base_dir="Output/Cache"):
+def get_sorted_cache_files(base_dir):
     """
     Returns { project_name: [sorted_cache_json_paths...] }
     Looks for 'Mistral_ZERO_sorted_cache.json' first; if missing, falls back to any '*_sorted_cache.json'.
@@ -119,7 +119,7 @@ def get_sorted_cache_files(base_dir="Output/Cache"):
 
 if __name__ == '__main__':
     count_of_found_gt = 0
-    projects_to_files = get_sorted_cache_files(base_dir="Output2/Cache")
+    projects_to_files = get_sorted_cache_files(base_dir="Output3/Cache")
     json_bugs = []
     for project, file_list in projects_to_files.items():
         for json_path in file_list:

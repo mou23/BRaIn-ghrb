@@ -10,3 +10,6 @@ cached_methods/
 *.log
 wrong-res/
 *.pyc
+result-1.txt
+result-2.txt
+result-3.txt
